@@ -2,10 +2,24 @@
   "name": "perps-copytrade",
   "version": "0.1.1",
   "description": "Copy a Hyperliquid trader's opens and closes onto your MetaMask Agent Wallet",
+  "homepage": "https://github.com/AyushBherwani1998/mm-perps-copytrade#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AyushBherwani1998/mm-perps-copytrade.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AyushBherwani1998/mm-perps-copytrade/issues"
+  },
+  "author": "Ayush Bherwani",
   "license": "MIT",
   "type": "module",
   "keywords": [
-    "oclif-plugin"
+    "oclif-plugin",
+    "mm-plugin",
+    "hyperliquid",
+    "copytrade",
+    "agent-wallet",
+    "perps"
   ],
   "files": [
     "dist",

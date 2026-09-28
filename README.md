@@ -13,6 +13,16 @@ mm config set experimentalPlugins true
 mm plugins install perps-copytrade
 ```
 
+### Plugin skill
+
+For Agent Harnesses, install the companion skill
+that documents the `mm copytrade` command surface, sizing/risk rules, and
+troubleshooting:
+
+```bash
+npx skills add AyushBherwani1998/mm-perps-copytrade
+```
+
 ## Usage
 
 ```bash
