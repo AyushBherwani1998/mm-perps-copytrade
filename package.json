@@ -1,0 +1,71 @@
+{
+  "name": "perps-copytrade",
+  "version": "0.1.1",
+  "description": "Copy a Hyperliquid trader's opens and closes onto your MetaMask Agent Wallet",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "oclif-plugin"
+  ],
+  "files": [
+    "dist",
+    "oclif.manifest.json"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && oclif manifest",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "prepack": "npm run build"
+  },
+  "oclif": {
+    "bin": "mm",
+    "commands": "./dist/commands",
+    "topicSeparator": " ",
+    "topics": {
+      "copytrade": {
+        "description": "Copy another Hyperliquid trader's perps activity onto your wallet"
+      }
+    }
+  },
+  "mm": {
+    "schemaVersion": 1,
+    "minCliVersion": ">=6.1.0 <8.0.0",
+    "capabilities": [],
+    "commands": [
+      {
+        "id": "copytrade:start",
+        "capabilities": ["wallet-read"],
+        "dataAccess": ["accounts"],
+        "targetChains": "any"
+      },
+      {
+        "id": "copytrade:stop",
+        "capabilities": [],
+        "dataAccess": [],
+        "targetChains": "any"
+      },
+      {
+        "id": "copytrade:status",
+        "capabilities": [],
+        "dataAccess": [],
+        "targetChains": "any"
+      },
+      {
+        "id": "copytrade:logs",
+        "capabilities": [],
+        "dataAccess": [],
+        "targetChains": "any"
+      }
+    ]
+  },
+  "peerDependencies": {
+    "@metamask/agent-wallet": "^6 || ^7"
+  },
+  "dependencies": {
+    "@nktkas/hyperliquid": "^0.33.3"
+  },
+  "devDependencies": {
+    "@metamask/agent-wallet": "file:../agentic-cli/packages/agentic-cli",
+    "oclif": "^4",
+    "typescript": "^5"
+  }
+}
