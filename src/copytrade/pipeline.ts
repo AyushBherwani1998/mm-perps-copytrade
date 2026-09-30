@@ -6,12 +6,21 @@ import { sizeForOpen } from "./sizing.js";
 import type { ActivityItem, Fill, RunConfig } from "./types.js";
 
 /**
- * Turns a single target fill into at most one mirrored order, applying sizing,
- * risk gates, and (for closes) our own current position. Returns an
- * `ActivityItem` describing the outcome, or `null` for fills we silently ignore
- * (spot, unusable, or closes when `--no-copy-closes`).
+ * Turns a single target fill into mirrored orders, applying sizing, risk gates,
+ * and (for closes) our own current position. Returns one `ActivityItem` per
+ * action attempted — usually one, but two for a flip (close then open) — or an
+ * empty array for fills we ignore (spot, unusable, or closes under
+ * `--no-copy-closes`).
  */
 export class Pipeline {
+  /**
+   * Last leverage actually observed on the target for a coin. A fill is
+   * processed after the fact, so by then the target may have closed or flipped
+   * and their live leverage for the coin is gone; without this, `follow` would
+   * skip the copy outright.
+   */
+  private readonly lastKnownLeverage = new Map<string, number>();
+
   constructor(
     private readonly cfg: RunConfig,
     private readonly reader: HyperliquidReader,
@@ -19,16 +28,29 @@ export class Pipeline {
     private readonly executor: PerpsExecutor
   ) {}
 
-  async handleTargetFill(target: `0x${string}`, fill: Fill): Promise<ActivityItem | null> {
+  async handleTargetFill(target: `0x${string}`, fill: Fill): Promise<ActivityItem[]> {
     const classified = classifyFill(fill);
-    if (classified.kind === "ignore") return null;
+    if (classified.kind === "ignore") return [];
 
     if (classified.kind === "open") {
-      return this.handleOpen(target, classified.symbol, classified.side, classified.size, classified.price);
+      return [await this.handleOpen(target, classified.symbol, classified.side, classified.size, classified.price)];
     }
 
-    if (!this.cfg.copyCloses) return null;
-    return this.handleClose(target, classified.symbol, classified.fraction, classified.full);
+    if (classified.kind === "flip") {
+      // Exit the old side before entering the new one, so the close sizes
+      // against a position that still exists.
+      const items: ActivityItem[] = [];
+      if (this.cfg.copyCloses) {
+        const closed = await this.handleClose(target, classified.symbol, 1, true);
+        if (closed) items.push(closed);
+      }
+      items.push(await this.handleOpen(target, classified.symbol, classified.to, classified.openSize, classified.price));
+      return items;
+    }
+
+    if (!this.cfg.copyCloses) return [];
+    const item = await this.handleClose(target, classified.symbol, classified.fraction, classified.full);
+    return item ? [item] : [];
   }
 
   private async handleOpen(
@@ -43,7 +65,7 @@ export class Pipeline {
     // Resolve leverage first: margin-based sizing needs both our leverage (to
     // turn a margin amount into a size) and the target's per-coin leverage (to
     // read how much margin the target committed).
-    const targetLeverage = (await this.reader.getClearinghouse(target)).positions.get(symbol)?.leverage;
+    const targetLeverage = await this.readTargetLeverage(target, symbol);
     const leverage = this.resolveLeverage(targetLeverage);
     if (leverage === undefined) {
       return skip(base, "could not resolve target leverage; pass --leverage <n>");
@@ -87,12 +109,28 @@ export class Pipeline {
       : { ...base, action: "open", size: String(size), notionalUsd, marginUsd, status: "failed", reason: res.error ?? "order failed" };
   }
 
+  /**
+   * The target's live leverage for a coin, remembered across fills. Falls back
+   * to the last value seen when they no longer hold the position.
+   */
+  private async readTargetLeverage(target: `0x${string}`, symbol: string): Promise<number | undefined> {
+    const key = `${target.toLowerCase()}|${symbol}`;
+    const live = (await this.reader.getClearinghouse(target)).positions.get(symbol)?.leverage;
+    if (live !== undefined) {
+      this.lastKnownLeverage.set(key, live);
+      return live;
+    }
+    return this.lastKnownLeverage.get(key);
+  }
+
   private async handleClose(target: `0x${string}`, symbol: string, fraction: number, targetFull: boolean): Promise<ActivityItem | null> {
     const base = { at: nowIso(), target, symbol } as const;
 
     const self = await this.reader.getClearinghouse(this.cfg.self);
     const pos = self.positions.get(symbol);
-    if (!pos) return null; // nothing to close on our side
+    // Nothing to close on our side. Report it rather than dropping it silently:
+    // a target exit we cannot mirror is exactly what an operator needs to see.
+    if (!pos) return skip(base, "target closed but we hold no position in this symbol");
 
     const closeBase = { ...base, side: pos.side } as const;
     const full = targetFull;

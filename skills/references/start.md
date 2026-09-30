@@ -34,7 +34,7 @@ comma-separated `0x` addresses.
 | `--copy-closes` / `--no-copy-closes` | No | Mirror the target's closes (default true) |
 | `--network <mainnet\|testnet>` | No | Default `mainnet` |
 | `--venue <venue>` | No | Default `hyperliquid` |
-| `--from <now\|epoch-ms>` | No | `now` copies only new fills (default); an epoch-ms timestamp backfills from that time |
+| `--from <now\|epoch-ms>` | No | `now` copies only new fills (default); an epoch-ms timestamp fetches the target's fills from that time over REST and mirrors them before the live stream takes over |
 | `--dry-run` | No | Log intended orders without signing or submitting |
 | `--daemon` / `-d` | No | Run detached in the background; manage with `status`/`logs`/`stop` |
 | `--name <id>` | No | Daemon instance name (default `default`); use distinct names to run several |
@@ -42,16 +42,25 @@ comma-separated `0x` addresses.
 ## Behavior notes
 
 - `--from now` (default) means a position the target opened **before** the run
-  started is not backfilled. To pick up an already-open position, pass an epoch-ms
-  `--from` just before the fill you want.
-- With `--leverage follow`, if the target does not currently hold the position,
-  the leverage cannot be read and that open is **skipped** — pass a numeric
-  `--leverage` (optionally with `--max-leverage`) to avoid this.
+  started is not picked up. To mirror an already-open position, pass an epoch-ms
+  `--from` at or before the fill you want.
+- History is fetched over REST (`userFillsByTime`) and replayed in trade order
+  before the live stream is released, so nothing is lost in the gap between
+  "history fetched" and "stream attached".
+- If the WebSocket drops, fills from the outage window would otherwise be lost
+  silently. On reconnect the target's fills are re-fetched from the last one
+  seen, and the reconnect is logged.
+- With `--leverage follow`, the target's per-coin leverage is read from their
+  live position and remembered; if they have since closed the position, the last
+  known value is reused. Only when neither is available is the open **skipped** —
+  pass a numeric `--leverage` to avoid that entirely.
 - Only opens and closes are mirrored. Modifications (leverage changes, TP/SL) are
-  not. Spot fills are ignored. Flips are handled as a close of the outgoing side;
-  the matching open arrives as its own fill.
-- Each mirrored action is streamed as one NDJSON item on stdout plus a human line;
-  a summary prints on exit (or is written to the daemon log).
+  not. Spot fills are ignored. A flip (`Long > Short`) arrives as one fill and is
+  mirrored as **two** actions: a full close of the outgoing side, then an open of
+  the remainder on the new side.
+- **Every** target fill is logged as an `action: "fill"` observation, whether or
+  not it becomes an order, followed by the mirrored action(s) it produced. A
+  summary prints on exit (or is written to the daemon log).
 
 ## Examples
 

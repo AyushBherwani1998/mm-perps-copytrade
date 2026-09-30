@@ -16,7 +16,7 @@ import { HyperliquidReader } from "../../copytrade/hyperliquid.js";
 import { sanitizeName } from "../../copytrade/paths.js";
 import { Pipeline } from "../../copytrade/pipeline.js";
 import { RiskManager } from "../../copytrade/risk.js";
-import type { ActivityItem, DaemonLaunchResult, PerpsNetwork, RunConfig, RunSummary, SizingMode, StartResult } from "../../copytrade/types.js";
+import type { ActivityItem, DaemonLaunchResult, Fill, PerpsNetwork, RunConfig, RunSummary, SizingMode, StartResult } from "../../copytrade/types.js";
 
 const inputs = {
   target: {
@@ -269,6 +269,8 @@ export default class CopytradeStart extends PluginCommand<StartResult, ActivityI
       sizing: cfg.sizing,
       dryRun: cfg.dryRun,
       fillsSeen: 0,
+      fillsBackfilled: 0,
+      reconnects: 0,
       ordersPlaced: 0,
       ordersSkipped: 0,
       ordersFailed: 0,
@@ -283,23 +285,38 @@ export default class CopytradeStart extends PluginCommand<StartResult, ActivityI
 
     // One aggressive target order arrives as many partial fills; coalesce them
     // into a single signal so we place one mirrored order per logical entry.
-    const aggregator = new FillAggregator(async (target, fill) => {
-      const item = await pipeline.handleTargetFill(target, fill);
-      if (!item) return;
-      io.yield(item);
-      io.emit(formatActivity(item));
-      if (item.status === "placed" || item.status === "dry-run") summary.ordersPlaced += 1;
-      else if (item.status === "failed") summary.ordersFailed += 1;
-      else summary.ordersSkipped += 1;
-    });
+    const aggregator = new FillAggregator(
+      async (target, fill) => {
+        for (const item of await pipeline.handleTargetFill(target, fill)) {
+          io.yield(item);
+          io.emit(formatActivity(item));
+          if (item.status === "placed" || item.status === "dry-run") summary.ordersPlaced += 1;
+          else if (item.status === "failed") summary.ordersFailed += 1;
+          else summary.ordersSkipped += 1;
+        }
+      },
+      { onError: (err) => io.log("warn", `mirror error: ${errText(err)}`) }
+    );
 
     await watcher.start({
-      onTargetFill: (target, fill) => {
+      // Every target fill is recorded, whether or not it becomes an order, so
+      // the log explains what the trader did and not just what we copied.
+      onFillSeen: (target, fill, source) => {
         summary.fillsSeen += 1;
+        if (source !== "live") summary.fillsBackfilled += 1;
+        const item = observed(target, fill, source);
+        io.yield(item);
+        io.emit(formatActivity(item));
+      },
+      onTargetFill: (target, fill) => {
         aggregator.add(target, fill);
       },
       onSelfFill: (fill) => risk.recordSelfFill(fill),
-      onError: (err) => io.log("warn", `watcher error: ${err instanceof Error ? err.message : String(err)}`),
+      onReconnect: (sinceTs) => {
+        summary.reconnects += 1;
+        io.emit(`copytrade: socket reconnected — re-fetching target fills since ${new Date(sinceTs).toISOString()}`);
+      },
+      onError: (err) => io.log("warn", `watcher error: ${errText(err)}`),
     });
 
     // Block until interrupted: the host's AbortSignal (Ctrl-C in the REPL/TTY) or
@@ -404,7 +421,13 @@ export default class CopytradeStart extends PluginCommand<StartResult, ActivityI
     if ("daemon" in data) {
       return `Daemon '${data.name}' running (pid ${data.pid})${data.dryRun ? " · DRY RUN" : ""}. Tail logs: mm copytrade logs --name ${data.name}`;
     }
-    return `Stopped. ${data.ordersPlaced} order(s) ${data.dryRun ? "simulated" : "placed"}, ${data.ordersSkipped} skipped, ${data.ordersFailed} failed · realized PnL today ${data.realizedPnlToday} USD`;
+    const recovered = data.fillsBackfilled > 0 ? ` (${data.fillsBackfilled} from history)` : "";
+    const drops = data.reconnects > 0 ? ` · ${data.reconnects} reconnect(s)` : "";
+    return (
+      `Stopped. ${data.fillsSeen} target fill(s) seen${recovered}${drops} · ` +
+      `${data.ordersPlaced} order(s) ${data.dryRun ? "simulated" : "placed"}, ${data.ordersSkipped} skipped, ${data.ordersFailed} failed · ` +
+      `realized PnL today ${data.realizedPnlToday} USD`
+    );
   }
 }
 
@@ -533,7 +556,28 @@ function parseFrom(raw: string | undefined): number {
   return n;
 }
 
+/** An observation of what the target did, independent of whether we mirrored it. */
+function observed(target: `0x${string}`, fill: Fill, source: "live" | "backfill" | "recovery"): ActivityItem {
+  return {
+    at: new Date().toISOString(),
+    target,
+    action: "fill",
+    symbol: fill.coin,
+    status: "seen",
+    size: fill.sz,
+    price: fill.px,
+    dir: fill.dir,
+    fillTime: new Date(fill.time).toISOString(),
+    tid: fill.tid,
+    ...(source !== "live" ? { backfill: true } : {}),
+  };
+}
+
 function formatActivity(item: ActivityItem): string {
+  if (item.action === "fill") {
+    const tag = item.backfill ? " (history)" : "";
+    return `[fill] ${item.symbol} ${item.dir ?? ""} size=${item.size ?? "?"} @ ${item.price ?? "?"} · ${item.fillTime ?? ""}${tag}`;
+  }
   const head = `[${item.action}] ${item.symbol}${item.side ? ` ${item.side}` : ""}`;
   const size = item.size ? ` size=${item.size}` : "";
   const margin = item.marginUsd ? ` margin=$${item.marginUsd}` : "";
@@ -545,6 +589,10 @@ function formatActivity(item: ActivityItem): string {
         ? " (dry-run)"
         : ` ✗ ${item.status}: ${item.reason ?? ""}`;
   return `${head}${size}${margin}${notional}${tail}`;
+}
+
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 /**

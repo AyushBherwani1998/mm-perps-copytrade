@@ -5,6 +5,8 @@ export type AggregatorOptions = {
   windowMs?: number;
   /** Hard cap on how long a group may keep absorbing pieces. */
   maxWaitMs?: number;
+  /** Called when an emission throws, instead of dropping the error. */
+  onError?: (err: unknown) => void;
 };
 
 type Group = {
@@ -44,6 +46,8 @@ export class FillAggregator {
 
   private readonly maxWaitMs: number;
 
+  private readonly onError: ((err: unknown) => void) | undefined;
+
   /** Serializes emissions so mirrored orders never overlap or reorder. */
   private chain: Promise<void> = Promise.resolve();
 
@@ -55,6 +59,7 @@ export class FillAggregator {
   ) {
     this.windowMs = opts.windowMs ?? DEFAULT_WINDOW_MS;
     this.maxWaitMs = opts.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
+    this.onError = opts.onError;
   }
 
   add(target: `0x${string}`, fill: Fill): void {
@@ -80,12 +85,19 @@ export class FillAggregator {
 
     const existing = this.pending.get(key);
     if (existing) {
-      existing.size += size;
-      existing.notional += size * price;
-      existing.pieces += 1;
-      clearTimeout(existing.timer);
-      existing.timer = setTimeout(() => this.flush(key), this.windowMs);
-      return;
+      // Replayed history arrives far faster than it happened, so wall-clock
+      // timers alone would fuse unrelated entries days apart into one order.
+      // Only coalesce pieces that were actually part of the same sweep.
+      if (Math.abs(fill.time - existing.first.time) > this.maxWaitMs) {
+        this.flush(key);
+      } else {
+        existing.size += size;
+        existing.notional += size * price;
+        existing.pieces += 1;
+        clearTimeout(existing.timer);
+        existing.timer = setTimeout(() => this.flush(key), this.windowMs);
+        return;
+      }
     }
 
     this.pending.set(key, {
@@ -119,7 +131,9 @@ export class FillAggregator {
   private enqueue(target: `0x${string}`, fill: Fill): void {
     this.chain = this.chain.then(() => this.emit(target, fill)).then(
       () => undefined,
-      () => undefined
+      (err) => {
+        this.onError?.(err);
+      }
     );
   }
 

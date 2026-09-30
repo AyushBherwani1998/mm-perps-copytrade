@@ -5,9 +5,12 @@ import type { ClassifiedFill, Fill } from "./types.js";
  *
  * Hyperliquid stamps each perp fill with a human `dir` such as `Open Long`,
  * `Close Short`, `Long > Short` (a flip), or `Buy`/`Sell` for spot. We mirror
- * only perp opens and closes; flips are surfaced as a close of the outgoing side
- * (the matching open arrives as its own fill). Spot and unknown labels are
- * ignored.
+ * only perp opens and closes. Spot and unknown labels are ignored.
+ *
+ * A flip arrives as a *single* fill whose size spans both legs: it closes the
+ * whole outgoing position and opens the remainder on the other side. It is
+ * classified as `flip` so the pipeline can emit both legs; treating it as a
+ * close alone would exit the old side and never enter the new one.
  */
 export function classifyFill(fill: Fill): ClassifiedFill {
   const dir = fill.dir.trim();
@@ -30,16 +33,26 @@ export function classifyFill(fill: Fill): ClassifiedFill {
     return { kind: "open", symbol: fill.coin, side, size, price };
   }
 
-  // Close (including liquidations) and flips both reduce/exit the outgoing side.
-  const isClose = dir.startsWith("Close ") || dir.includes(">") || dir.startsWith("Liquidated");
-  if (isClose) {
-    // Outgoing side is inferred from the position held before the fill.
-    const side = startPosition > 0 ? "long" : startPosition < 0 ? "short" : undefined;
-    if (!side) return { kind: "ignore", reason: `close with no prior position ('${dir}')` };
+  // Outgoing side is inferred from the position held before the fill.
+  const from = startPosition > 0 ? "long" : startPosition < 0 ? "short" : undefined;
+
+  if (dir.includes(">")) {
+    if (!from) return { kind: "ignore", reason: `flip with no prior position ('${dir}')` };
+    // Size beyond the old position is the new side's entry.
+    const openSize = size - Math.abs(startPosition);
+    if (!(openSize > 0)) {
+      // Degenerate flip that only closed: fall through to a plain full close.
+      return { kind: "close", symbol: fill.coin, side: from, size, price, fraction: 1, full: true };
+    }
+    return { kind: "flip", symbol: fill.coin, from, to: from === "long" ? "short" : "long", openSize, price };
+  }
+
+  if (dir.startsWith("Close ") || dir.startsWith("Liquidated")) {
+    if (!from) return { kind: "ignore", reason: `close with no prior position ('${dir}')` };
     const prior = Math.abs(startPosition);
     const fraction = prior > 0 ? Math.min(1, size / prior) : 1;
     const full = fraction >= 0.999;
-    return { kind: "close", symbol: fill.coin, side, size, price, fraction, full };
+    return { kind: "close", symbol: fill.coin, side: from, size, price, fraction, full };
   }
 
   return { kind: "ignore", reason: `unhandled dir '${dir}'` };

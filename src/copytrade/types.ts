@@ -35,6 +35,7 @@ export type Fill = {
 export type ClassifiedFill =
   | { kind: "open"; symbol: string; side: PerpsSide; size: number; price: number }
   | { kind: "close"; symbol: string; side: PerpsSide; size: number; price: number; fraction: number; full: boolean }
+  | { kind: "flip"; symbol: string; from: PerpsSide; to: PerpsSide; openSize: number; price: number }
   | { kind: "ignore"; reason: string };
 
 /** Fully-resolved run configuration. */
@@ -68,20 +69,30 @@ export type RiskConfig = {
   denySymbols?: Set<string>;
 };
 
-/** A streamed activity item (one per detected/mirrored event). */
+/**
+ * A streamed activity item. Either an observation of a target fill
+ * (`action: "fill"`, `status: "seen"`) or the outcome of mirroring one.
+ */
 export type ActivityItem = {
   at: string;
   target: string;
-  action: "open" | "close" | "skip";
+  action: "open" | "close" | "skip" | "fill";
   symbol: string;
   side?: PerpsSide;
   size?: string;
   notionalUsd?: string;
   /** USD margin committed for this order (notional / leverage). */
   marginUsd?: string;
-  status: "placed" | "dry-run" | "skipped" | "failed";
+  status: "placed" | "dry-run" | "skipped" | "failed" | "seen";
   reason?: string;
   orderId?: string;
+  /** Observation-only fields, set when `action: "fill"`. */
+  dir?: string;
+  price?: string;
+  fillTime?: string;
+  tid?: number;
+  /** True when the fill came from history (backfill or reconnect catch-up). */
+  backfill?: boolean;
 };
 
 /** Result returned when `start --daemon` forks a background worker and exits. */
@@ -108,6 +119,10 @@ export type RunSummary = {
   sizing: SizingMode;
   dryRun: boolean;
   fillsSeen: number;
+  /** Of `fillsSeen`, how many came from history rather than the live stream. */
+  fillsBackfilled: number;
+  /** WebSocket reconnects observed; each triggers a catch-up fetch. */
+  reconnects: number;
   ordersPlaced: number;
   ordersSkipped: number;
   ordersFailed: number;
