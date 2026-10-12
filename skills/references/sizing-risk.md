@@ -103,3 +103,16 @@ always allowed).
 A gate that clamps size reports the clamp; a gate that blocks reports a skip with
 a reason. Daily-loss accounting uses your realized `closedPnl` fills for the
 current UTC day.
+
+## Adds to existing positions
+
+An open is copied only if the copier watched the target's position start from
+zero (the fill's `startPosition` is `0`) — or if it adds to such a position.
+Opens that add to a position the target already held before the copier saw it
+open (opened before `start`, or before the `--from` backfill point) are skipped
+with `target added to a position it held before copying started`, logged once
+per position. Pass `--copy-adds-to-existing` to copy those adds too. Once the target
+fully closes, its next entry from zero is copied normally.
+
+The copier's view resets on restart: adds to a position it opened in an earlier
+run count as existing after a restart.

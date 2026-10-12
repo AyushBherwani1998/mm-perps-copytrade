@@ -30,7 +30,7 @@ export function classifyFill(fill: Fill): ClassifiedFill {
   if (dir.startsWith("Open ")) {
     const side = dir.endsWith("Long") ? "long" : dir.endsWith("Short") ? "short" : undefined;
     if (!side) return { kind: "ignore", reason: `unrecognized open dir '${dir}'` };
-    return { kind: "open", symbol: fill.coin, side, size, price };
+    return { kind: "open", symbol: fill.coin, side, size, price, fresh: startPosition === 0 };
   }
 
   // Outgoing side is inferred from the position held before the fill.

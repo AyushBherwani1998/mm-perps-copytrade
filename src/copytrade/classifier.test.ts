@@ -68,3 +68,15 @@ describe("classifyFill — opens and closes", () => {
     assert.equal(classifyFill(fill({ dir: "Buy" })).kind, "ignore");
   });
 });
+
+describe("classifyFill — fresh vs add", () => {
+  it("marks an open from a flat position as fresh", () => {
+    const res = classifyFill(fill({ dir: "Open Long", startPosition: "0.0" }));
+    assert.partialDeepStrictEqual(res, { kind: "open", side: "long", fresh: true });
+  });
+
+  it("marks an open on top of an existing position as an add", () => {
+    const res = classifyFill(fill({ dir: "Open Short", startPosition: "-250" }));
+    assert.partialDeepStrictEqual(res, { kind: "open", side: "short", fresh: false });
+  });
+});

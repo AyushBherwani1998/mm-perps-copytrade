@@ -80,6 +80,7 @@ Run several at once by giving each a `--name`.
 | `--daily-loss-limit <usd>` | Risk: halt new opens after this realized loss (UTC day) |
 | `--symbols <list>` / `--exclude-symbols <list>` | Risk: allow / deny lists |
 | `--copy-closes` | Mirror closes (default true; `--no-copy-closes` to disable) |
+| `--copy-adds-to-existing` | Also copy adds to positions the target held before copying started (default false) |
 | `--network <mainnet\|testnet>` | Default `mainnet` |
 | `--venue <venue>` | Default `hyperliquid` |
 | `--from <now\|epoch-ms>` | Skip backfill (default `now`) |

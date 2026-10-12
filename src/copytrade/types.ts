@@ -33,7 +33,15 @@ export type Fill = {
 
 /** The result of classifying a fill into a copy action. */
 export type ClassifiedFill =
-  | { kind: "open"; symbol: string; side: PerpsSide; size: number; price: number }
+  | {
+      kind: "open";
+      symbol: string;
+      side: PerpsSide;
+      size: number;
+      price: number;
+      /** True when the target held nothing in this coin before the fill (a brand-new position, not an add). */
+      fresh: boolean;
+    }
   | { kind: "close"; symbol: string; side: PerpsSide; size: number; price: number; fraction: number; full: boolean }
   | { kind: "flip"; symbol: string; from: PerpsSide; to: PerpsSide; openSize: number; price: number }
   | { kind: "ignore"; reason: string };
@@ -56,6 +64,11 @@ export type RunConfig = {
   maxSlippageBps?: number;
   risk: RiskConfig;
   copyCloses: boolean;
+  /**
+   * Copy opens that add to a position the target already held before we saw it
+   * open (e.g. opened before the copier started). Off by default.
+   */
+  copyAddsToExisting: boolean;
   dryRun: boolean;
   /** Epoch ms; fills at or after this are copied. `0` copies nothing from the snapshot. */
   fromTs: number;

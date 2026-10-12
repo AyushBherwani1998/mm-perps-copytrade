@@ -37,6 +37,7 @@ function makeCfg(overrides: Partial<RunConfig>): RunConfig {
     leverage: "follow",
     risk: {},
     copyCloses: true,
+    copyAddsToExisting: false,
     dryRun: false,
     fromTs: 0,
     ...overrides,

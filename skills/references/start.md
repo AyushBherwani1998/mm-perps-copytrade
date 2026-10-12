@@ -32,6 +32,7 @@ comma-separated `0x` addresses.
 | `--symbols <list>` | No | Risk: only copy these symbols (comma-separated allow list) |
 | `--exclude-symbols <list>` | No | Risk: never copy these symbols (comma-separated deny list) |
 | `--copy-closes` / `--no-copy-closes` | No | Mirror the target's closes (default true) |
+| `--copy-adds-to-existing` | No | Also copy opens that add to a position the target already held before the copier saw it open (default false: such adds are skipped, logged once per position) |
 | `--network <mainnet\|testnet>` | No | Default `mainnet` |
 | `--venue <venue>` | No | Default `hyperliquid` |
 | `--from <now\|epoch-ms>` | No | `now` copies only new fills (default); an epoch-ms timestamp fetches the target's fills from that time over REST and mirrors them before the live stream takes over |

@@ -144,6 +144,14 @@ const inputs = {
     prompt: false,
     default: true,
   },
+  copyAddsToExisting: {
+    type: InputFieldType.Boolean,
+    flag: "copy-adds-to-existing",
+    message: "Copy adds to positions the target already held before copying started (default false)",
+    required: false,
+    prompt: false,
+    default: false,
+  },
   dryRun: {
     type: InputFieldType.Boolean,
     flag: "dry-run",
@@ -386,6 +394,7 @@ export default class CopytradeStart extends PluginCommand<StartResult, ActivityI
         ...(v.excludeSymbols ? { denySymbols: splitSymbols(v.excludeSymbols) } : {}),
       },
       copyCloses: v.copyCloses !== false,
+      copyAddsToExisting: v.copyAddsToExisting === true,
       dryRun: v.dryRun === true,
       fromTs: parseFrom(v.from),
     };
@@ -448,6 +457,7 @@ type ResolvedValues = {
   symbols?: string;
   excludeSymbols?: string;
   copyCloses?: boolean;
+  copyAddsToExisting?: boolean;
   dryRun?: boolean;
   from?: string;
   daemon?: boolean;

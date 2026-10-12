@@ -21,6 +21,16 @@ export class Pipeline {
    */
   private readonly lastKnownLeverage = new Map<string, number>();
 
+  /**
+   * Target positions we watched open from zero, keyed `target|coin|side`. Any
+   * other open on the target is an add to a position that predates our view of
+   * it, which is only copied under `--copy-adds-to-existing`.
+   */
+  private readonly opened = new Set<string>();
+
+  /** Existing positions we already reported as skipped, so each is logged once. */
+  private readonly skippedExisting = new Set<string>();
+
   constructor(
     private readonly cfg: RunConfig,
     private readonly reader: HyperliquidReader,
@@ -33,10 +43,26 @@ export class Pipeline {
     if (classified.kind === "ignore") return [];
 
     if (classified.kind === "open") {
+      const key = positionKey(target, classified.symbol, classified.side);
+      if (classified.fresh) {
+        this.opened.add(key);
+        this.skippedExisting.delete(key);
+      } else if (!this.opened.has(key) && !this.cfg.copyAddsToExisting) {
+        if (this.skippedExisting.has(key)) return [];
+        this.skippedExisting.add(key);
+        return [
+          skip(
+            { at: nowIso(), target, symbol: classified.symbol, side: classified.side },
+            "target added to a position it held before copying started; pass --copy-adds-to-existing to copy these"
+          ),
+        ];
+      }
       return [await this.handleOpen(target, classified.symbol, classified.side, classified.size, classified.price)];
     }
 
     if (classified.kind === "flip") {
+      this.forget(target, classified.symbol, classified.from);
+      this.opened.add(positionKey(target, classified.symbol, classified.to));
       // Exit the old side before entering the new one, so the close sizes
       // against a position that still exists.
       const items: ActivityItem[] = [];
@@ -47,6 +73,9 @@ export class Pipeline {
       items.push(await this.handleOpen(target, classified.symbol, classified.to, classified.openSize, classified.price));
       return items;
     }
+
+    // A full exit ends the position; a later entry from zero is a fresh one.
+    if (classified.full) this.forget(target, classified.symbol, classified.side);
 
     if (!this.cfg.copyCloses) return [];
     const item = await this.handleClose(target, classified.symbol, classified.fraction, classified.full);
@@ -167,6 +196,16 @@ export class Pipeline {
   private capLeverage(leverage: number): number {
     return this.cfg.maxLeverage !== undefined ? Math.min(leverage, this.cfg.maxLeverage) : leverage;
   }
+
+  private forget(target: `0x${string}`, symbol: string, side: "long" | "short"): void {
+    const key = positionKey(target, symbol, side);
+    this.opened.delete(key);
+    this.skippedExisting.delete(key);
+  }
+}
+
+function positionKey(target: `0x${string}`, symbol: string, side: "long" | "short"): string {
+  return `${target.toLowerCase()}|${symbol}|${side}`;
 }
 
 function skip(base: { at: string; target: string; symbol: string; side?: "long" | "short" }, reason: string): ActivityItem {
