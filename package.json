@@ -1,6 +1,6 @@
 {
   "name": "perps-copytrade",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Copy a Hyperliquid trader's opens and closes onto your MetaMask Agent Wallet",
   "homepage": "https://github.com/AyushBherwani1998/mm-perps-copytrade#readme",
   "repository": {
@@ -47,8 +47,12 @@
     "commands": [
       {
         "id": "copytrade:start",
-        "capabilities": ["wallet-read"],
-        "dataAccess": ["accounts"],
+        "capabilities": [
+          "wallet-read"
+        ],
+        "dataAccess": [
+          "accounts"
+        ],
         "targetChains": "any"
       },
       {

@@ -4,7 +4,7 @@ description: Use when the user wants to copy-trade (mirror) another Hyperliquid 
 license: MIT
 metadata:
   author: metamask
-  version: "0.1.0"
+  version: "0.2.0"
   pluginPackage: perps-copytrade
   minCliVersion: ">=6.1.0 <8.0.0"
 ---
